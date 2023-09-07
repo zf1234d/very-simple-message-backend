@@ -89,8 +89,10 @@ function sendVerificationEmail($email, $code)
     if ($email_limit) {
         return 'too_frequent';
     }
+
     //发送邮件的代码，根据自己服务器的情况修改
-    $command = "echo '[没空云]你的验证码: $code(5分钟内有效)' | mailx -s 'uniucy留言身份验证' $email";
+    $command = "echo 'code: $code' | mailx -s 'code' $email";
+
     shell_exec($command);
     $logEntry = "$email:" . time();
     file_put_contents($logFile, $logEntry . "\n", FILE_APPEND);

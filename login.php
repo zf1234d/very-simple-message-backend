@@ -10,7 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $device = $_POST['device'];
         $code = $_POST['code'];
         // 验证码验证逻辑
-        if ($code == generateVerificationCode($email, $device)) {
+        if (codeVerification($email, $device, $code)) {
             // 验证码正确
             $response  = json_encode(generateToken($email, $device));
         } else {
@@ -33,8 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $email = $_POST['email'];
                 $device = $_POST['device'];
                 // 执行发送包含验证码的邮件的操作
-                $code = generateVerificationCode($email, $device);
-                $response = sendVerificationEmail($email, $code);
+                $response = sendVerificationEmail($email, $device);
             } else {
                 // 参数缺失
                 $response = 'invalid';
@@ -49,23 +48,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 echo $response;
 
 
-function generateVerificationCode($email, $deviceId)
+function codeVerification($email, $deviceId, $code)
 {
-    // 取时间戳的300间隔倍数
-    $timestamp = floor(time() / 300) * 300;
+    $code_valid = false;
+    $logFile = 'login.log';
+    if (!file_exists($logFile)) {
+        file_put_contents($logFile, '');
+    }
+    $logContents = file($logFile);
+    foreach ($logContents as $line) {
+        $parts = explode(':', $line);
+        $thisEmail = $parts[0];
+        $timestamp = str_replace(PHP_EOL, '', $parts[1]);
+        if (time() - $timestamp > 300) {
+            $logContents = array_diff($logContents, array($line));
+        } else {
+            if ($email == $thisEmail) {
+                global $server_token_seed;
+                $seed = $timestamp . $email . $deviceId . $server_token_seed;
+                // 初始化随机数生成器
+                mt_srand((int)(substr(hexdec(hash('sha256', $seed)), 0, 10) * 100000));
+                // 重新生成4位随机数验证码并比较
+                $thisCode = mt_rand(100000, 999999);
+                if ($code == $thisCode) {
+                    $code_valid = true;
+                }
+            }
+        }
+    }
+    file_put_contents($logFile, implode("\n", $logContents));
+    return $code_valid;
+}
+
+function sendVerificationEmail($email, $deviceId)
+{
+    // 生成验证码
+    $thisTimestamp = time(); // 存下时间戳
     // 构建种子用于生成固定验证码
     global $server_token_seed;
-    $seed = $timestamp . $email . $deviceId . $server_token_seed;;
+    $seed = $thisTimestamp . $email . $deviceId . $server_token_seed;
     // 初始化随机数生成器
     mt_srand((int)(substr(hexdec(hash('sha256', $seed)), 0, 10) * 100000));
     // 生成4位随机数验证码
     $code = mt_rand(100000, 999999);
-    return $code;
-}
 
-function sendVerificationEmail($email, $code)
-{
-    $logFile = 'send.log';
+    // 记录日志
+    $logFile = 'login.log';
     if (!file_exists($logFile)) {
         file_put_contents($logFile, '');
     }
@@ -84,17 +112,18 @@ function sendVerificationEmail($email, $code)
             }
         }
     }
-
     file_put_contents($logFile, implode("\n", $logContents));
+
+
     if ($email_limit) {
         return 'too_frequent';
     }
 
-    //发送邮件的代码，根据自己服务器的情况修改
-    $command = "echo 'code: $code' | mailx -s 'code' $email";
+    //发送邮件的代码，根据服务器的情况自己写
+    // $command = "echo 'code: $code' | mailx -s 'code' $email";
+    // shell_exec($command);
 
-    shell_exec($command);
-    $logEntry = "$email:" . time();
+    $logEntry = "$email:" . $thisTimestamp;
     file_put_contents($logFile, $logEntry . "\n", FILE_APPEND);
     return 'code_please';
 }
